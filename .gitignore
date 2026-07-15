@@ -1,0 +1,19 @@
+# Compiled binaries
+/nexdo
+/bin/
+*.exe
+
+# NexDo's on-disk data (the log lives here once we build it)
+/data/
+*.log
+
+# Go
+*.test
+*.out
+vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
