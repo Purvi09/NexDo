@@ -46,6 +46,9 @@ func (db *DB) Apply(op Op) error {
 	if _, err := db.file.Write(append(line, '\n')); err != nil {
 		return err
 	}
+	if err := db.file.Sync(); err != nil {
+		return err
+	}
 	db.Store.Apply(op)
 	return nil
 }
