@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sort"
-	"time"
 
 	"github.com/Purvi09/NexDo/internal/store"
 )
@@ -23,32 +21,45 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		tasks := sortedTasks(db.Tasks())
-		fmt.Fprintf(w, "NexDo — %d task(s)\n\n", len(tasks))
-		for _, t := range tasks {
+		active := db.List()
+		fmt.Fprintf(w, "NexDo — %d active task(s)\n\n", len(active))
+		for _, t := range active {
 			box := "[ ]"
 			if t.Done {
 				box = "[x]"
 			}
-			fmt.Fprintf(w, "%s %s\n", box, t.Text)
+			fmt.Fprintf(w, "%s  %s  %s\n", t.ID, box, t.Text)
+		}
+		fmt.Fprintf(w, "\n(%d archived — see /archived)\n", len(db.ListArchived()))
+	})
+
+	mux.HandleFunc("GET /archived", func(w http.ResponseWriter, r *http.Request) {
+		archived := db.ListArchived()
+		fmt.Fprintf(w, "NexDo — %d archived task(s)\n\n", len(archived))
+		for _, t := range archived {
+			fmt.Fprintf(w, "%s  %s\n", t.ID, t.Text)
 		}
 	})
 
-	// Temporary demo endpoint so persistence is visible from the browser.
-	// A proper API + UI comes later.
-	mux.HandleFunc("GET /add", func(w http.ResponseWriter, r *http.Request) {
+	// Temporary demo endpoints so the store API is visible from the browser.
+	// The real JSON API + UI come in Phase 2.
+	mux.HandleFunc("GET /add", demo(func(r *http.Request) error {
 		text := r.URL.Query().Get("text")
 		if text == "" {
-			http.Error(w, "missing ?text=", http.StatusBadRequest)
-			return
+			return fmt.Errorf("missing ?text=")
 		}
-		op := store.Op{Kind: store.OpAdd, TaskID: store.NewID(), Text: text, At: time.Now()}
-		if err := db.Apply(op); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	})
+		_, err := db.Add(text)
+		return err
+	}))
+	mux.HandleFunc("GET /complete", demo(func(r *http.Request) error {
+		return db.Complete(r.URL.Query().Get("id"))
+	}))
+	mux.HandleFunc("GET /archive", demo(func(r *http.Request) error {
+		return db.Archive(r.URL.Query().Get("id"))
+	}))
+	mux.HandleFunc("GET /restore", demo(func(r *http.Request) error {
+		return db.Restore(r.URL.Query().Get("id"))
+	}))
 
 	log.Printf("NexDo listening on http://%s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -56,16 +67,12 @@ func main() {
 	}
 }
 
-func sortedTasks(m map[string]store.Task) []store.Task {
-	out := make([]store.Task, 0, len(m))
-	for _, t := range m {
-		out = append(out, t)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Created.Equal(out[j].Created) {
-			return out[i].ID < out[j].ID
+func demo(action func(*http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := action(r); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
-		return out[i].Created.Before(out[j].Created)
-	})
-	return out
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
 }
